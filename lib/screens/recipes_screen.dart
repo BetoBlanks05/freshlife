@@ -107,11 +107,13 @@ class _RecipesScreenState extends State<RecipesScreen> {
                 ],
               ),
             )
-          : !_generated
-              ? _buildWelcome()
-              : _error.isNotEmpty
-                  ? _buildError()
-                  : _buildRecipeList(),
+          : SingleChildScrollView( // --- AQUÍ ESTÁ EL CAMBIO ---
+              child: !_generated
+                  ? _buildWelcome()
+                  : _error.isNotEmpty
+                      ? _buildError()
+                      : _buildRecipeList(),
+            ),
     );
   }
 
