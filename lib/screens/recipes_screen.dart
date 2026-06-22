@@ -143,84 +143,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
             const SizedBox(height: 12),
             const Text(
               'Se analizarán los ingredientes que tienes\n'
-              'y sugerirá 3 recetas.',
+              'y sugerirá recetas.',
               style: TextStyle(color: Colors.grey, fontSize: 14),
               textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 32),
-            StreamBuilder<QuerySnapshot>(
-              stream: _firestoreService.getInventoryStream(),
-              builder: (context, snap) {
-                final products = (snap.data?.docs ?? [])
-                    .map((d) => Product.fromMap(
-                        d.data() as Map<String, dynamic>, d.id))
-                    .toList();
-
-                if (products.isEmpty) {
-                  return Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: _kOrange.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                          color: _kOrange.withValues(alpha: 0.3)),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.warning_amber_rounded,
-                            color: _kOrange, size: 18),
-                        SizedBox(width: 8),
-                        Text('No hay ingredientes en tu despensa',
-                            style: TextStyle(color: _kOrange)),
-                      ],
-                    ),
-                  );
-                }
-
-                return Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: _kTeal.withValues(alpha: 0.06),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                        color: _kTeal.withValues(alpha: 0.3)),
-                  ),
-                  child: Column(
-                    children: [
-                      Text(
-                        '${products.length} ingredientes disponibles',
-                        style: const TextStyle(
-                            color: _kTeal,
-                            fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: products.take(10).map((p) =>
-                          Chip(
-                            label: Text(p.name,
-                                style: const TextStyle(
-                                    fontSize: 11)),
-                            backgroundColor:
-                                Colors.white,
-                            padding: EdgeInsets.zero,
-                            visualDensity:
-                                VisualDensity.compact,
-                          ),
-                        ).toList(),
-                      ),
-                      if (products.length > 10)
-                        Text(
-                            '+ ${products.length - 10} más',
-                            style: const TextStyle(
-                                color: Colors.grey,
-                                fontSize: 12)),
-                    ],
-                  ),
-                );
-              },
             ),
             const SizedBox(height: 32),
             SizedBox(
@@ -369,24 +294,15 @@ class _RecipeCardState extends State<_RecipeCard> {
                         Row(
                           children: [
                             if (tiempo.isNotEmpty) ...[
-                              const Icon(Icons.access_time,
-                                  size: 12,
-                                  color: Colors.grey),
+                              const Icon(Icons.access_time, size: 12, color: Colors.grey),
                               const SizedBox(width: 3),
-                              Text(tiempo,
-                                  style: const TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 12)),
+                              Text(tiempo, style: const TextStyle(color: Colors.grey, fontSize: 12)),
                               const SizedBox(width: 10),
                             ],
                             if (porciones.isNotEmpty) ...[
-                              const Icon(Icons.people_outline,
-                                  size: 12, color: Colors.grey),
+                              const Icon(Icons.people_outline, size: 12, color: Colors.grey),
                               const SizedBox(width: 3),
-                              Text('$porciones porciones',
-                                  style: const TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 12)),
+                              Text('$porciones porciones', style: const TextStyle(color: Colors.grey, fontSize: 12)),
                             ],
                           ],
                         ),
@@ -394,9 +310,7 @@ class _RecipeCardState extends State<_RecipeCard> {
                     ),
                   ),
                   Icon(
-                    _expanded
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
+                    _expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
                     color: Colors.grey,
                   ),
                 ],
@@ -406,102 +320,82 @@ class _RecipeCardState extends State<_RecipeCard> {
 
           if (_expanded) ...[
             const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (usados.isNotEmpty) ...[
-                    const Text('Ingredientes en tu despensa',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: _kTeal,
-                            fontSize: 13)),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: usados.map((i) => Chip(
-                            label: Text(i,
-                                style:
-                                    const TextStyle(fontSize: 11)),
-                            backgroundColor:
-                                _kTeal.withValues(alpha: 0.1),
-                            side: BorderSide.none,
-                            visualDensity: VisualDensity.compact,
-                          )).toList(),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
+            // CORRECCIÓN: Contenedor con altura máxima para evitar el overflow
+            Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.4,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (usados.isNotEmpty) ...[
+                      const Text('Ingredientes en tu despensa',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: _kTeal, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: usados.map((i) => Chip(
+                              label: Text(i, style: const TextStyle(fontSize: 11)),
+                              backgroundColor: _kTeal.withValues(alpha: 0.1),
+                              side: BorderSide.none,
+                              visualDensity: VisualDensity.compact,
+                            )).toList(),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
 
-                  if (extra.isNotEmpty) ...[
-                    const Text('🛒 También necesitas',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: _kOrange,
-                            fontSize: 13)),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: extra.map((i) => Chip(
-                            label: Text(i,
-                                style:
-                                    const TextStyle(fontSize: 11)),
-                            backgroundColor:
-                                _kOrange.withValues(alpha: 0.08),
-                            side: BorderSide.none,
-                            visualDensity: VisualDensity.compact,
-                          )).toList(),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
+                    if (extra.isNotEmpty) ...[
+                      const Text('🛒 También necesitas',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: _kOrange, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: extra.map((i) => Chip(
+                              label: Text(i, style: const TextStyle(fontSize: 11)),
+                              backgroundColor: _kOrange.withValues(alpha: 0.08),
+                              side: BorderSide.none,
+                              visualDensity: VisualDensity.compact,
+                            )).toList(),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
 
-                  if (pasos.isNotEmpty) ...[
-                    const Text('Preparación',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: _kDark,
-                            fontSize: 13)),
-                    const SizedBox(height: 8),
-                    ...pasos.asMap().entries.map(
-                      (e) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
-                          crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 24,
-                              height: 24,
-                              decoration: const BoxDecoration(
-                                  color: _kTeal,
-                                  shape: BoxShape.circle),
-                              child: Center(
-                                child: Text(
-                                  '${e.key + 1}',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight:
-                                          FontWeight.bold),
+                    if (pasos.isNotEmpty) ...[
+                      const Text('Preparación',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: _kDark, fontSize: 13)),
+                      const SizedBox(height: 8),
+                      ...pasos.asMap().entries.map(
+                        (e) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 24,
+                                height: 24,
+                                decoration: const BoxDecoration(color: _kTeal, shape: BoxShape.circle),
+                                child: Center(
+                                  child: Text('${e.key + 1}',
+                                      style: const TextStyle(
+                                          color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(e.value,
-                                  style: const TextStyle(
-                                      fontSize: 13,
-                                      height: 1.4,
-                                      color: _kDark)),
-                            ),
-                          ],
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(e.value,
+                                    style: const TextStyle(fontSize: 13, height: 1.4, color: _kDark)),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ],

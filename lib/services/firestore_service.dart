@@ -16,7 +16,7 @@ class FirestoreService {
     return _db.collection('users').doc(_uid).collection('shopping_list');
   }
 
-  // ── Cache GLOBAL de clasificación de productos ───────────────
+  //  Cache GLOBAL de clasificación de productos
   // Todos los usuarios comparten esta colección, ahorrando llamadas a la IA
   CollectionReference get _cache =>
       _db.collection('product_knowledge');
@@ -30,6 +30,14 @@ class FirestoreService {
       .replaceAll(RegExp(r'[úùü]'), 'u')
       .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
       .trim();
+  
+  Future<void> createUserProfile(String email) async {
+    if (_uid == null) return;
+    await _db.collection('users').doc(_uid).set({
+      'email': email,
+      'createdAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true)); // merge evita borrar datos si el doc ya existe
+  }
 
   /// Consulta si un producto ya fue clasificado antes.
   /// Retorna null si no existe en caché.

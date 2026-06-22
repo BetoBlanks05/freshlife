@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
+import '../services/firestore_service.dart'; // Importamos FirestoreService
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -13,8 +14,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController    = TextEditingController();
   final _passwordController = TextEditingController();
   final _authService        = AuthService();
+  final _firestoreService   = FirestoreService();
+
   bool _isLoading       = false;
   bool _obscurePassword = true;
+  bool _isLogin         = true;
 
   static const _teal = Color(0xFF4DB6AC);
   static const _dark = Color(0xFF263238);
@@ -26,7 +30,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _login() async {
+  Future<void> _submit() async {
     final email = _emailController.text.trim();
     final pass  = _passwordController.text.trim();
 
@@ -34,11 +38,26 @@ class _LoginScreenState extends State<LoginScreen> {
       _snack('Por favor llena todos los campos');
       return;
     }
+    
+    // Validación mínima de contraseña
+    if (!_isLogin && pass.length < 6) {
+      _snack('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      await _authService.signIn(email, pass);
-      // FIX: mounted check tras await
+      if (_isLogin) {
+        // Login
+        await _authService.signIn(email, pass);
+      } else {
+        // Registro
+        await _authService.signUp(email, pass);
+        // Documento base en Firestore
+        await _firestoreService.createUserProfile(email);
+      }
+
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -54,8 +73,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _snack(String msg) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
+    );
   }
 
   @override
@@ -63,162 +83,96 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              // ── Cabecera con gradiente ──────────────────────
-              Container(
-                height: 300,
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color(0xFFE0F7F5),
-                      Color(0xFFB2DFDB),
-                      Colors.white,
-                    ],
-                    stops: [0.0, 0.55, 1.0],
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(Icons.eco_rounded, size: 80, color: _teal),
+                const SizedBox(height: 16),
+                Text(
+                  _isLogin ? 'Bienvenido a\nFreshLife' : 'Crea tu cuenta en\nFreshLife',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: _dark,
+                    height: 1.2,
                   ),
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 88,
-                      height: 88,
-                      decoration: BoxDecoration(
-                        // FIX: withOpacity → withValues(alpha:)
-                        color: _teal.withValues(alpha: 0.15),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.eco_rounded,
-                          size: 52, color: _teal),
-                    ),
-                    const SizedBox(height: 18),
-                    RichText(
-                      text: const TextSpan(
-                        children: [
-                          TextSpan(
-                            text: 'Fresh',
-                            style: TextStyle(
-                              fontSize: 34,
-                              fontWeight: FontWeight.bold,
-                              color: _dark,
-                            ),
-                          ),
-                          TextSpan(
-                            text: 'Life',
-                            style: TextStyle(
-                              fontSize: 34,
-                              fontWeight: FontWeight.w300,
-                              color: _teal,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 8),
+                Text(
+                  _isLogin ? 'Ingresa para continuar' : 'Regístrate para comenzar',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16, color: Colors.grey),
                 ),
-              ),
-
-              // ── Formulario ─────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 28),
-                    _Field(
-                      controller: _emailController,
-                      label: 'Correo electrónico o usuario',
-                      icon: Icons.email_outlined,
-                      keyboardType: TextInputType.emailAddress,
-                    ),
-                    const SizedBox(height: 16),
-                    _Field(
-                      controller: _passwordController,
-                      label: 'Contraseña',
-                      icon: Icons.lock_outline,
-                      obscure: _obscurePassword,
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                          color: Colors.grey,
-                          size: 20,
-                        ),
-                        onPressed: () => setState(
-                            () => _obscurePassword = !_obscurePassword),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () {},
-                        child: const Text(
-                          '¿Olvidaste tu contraseña?',
-                          style: TextStyle(color: _teal, fontSize: 13),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: _isLoading ? null : _login,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _teal,
-                          foregroundColor: Colors.white,
-                          // FIX: withOpacity → withValues(alpha:)
-                          disabledBackgroundColor:
-                              _teal.withValues(alpha: 0.6),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30)),
-                          elevation: 2,
-                        ),
-                        child: _isLoading
-                            ? const SizedBox(
-                                height: 22,
-                                width: 22,
-                                child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2.5))
-                            : const Text(
-                                'Iniciar Sesión',
-                                style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                      ),
-                    ),
-                    const SizedBox(height: 36),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('¿No tienes cuenta? ',
-                            style: TextStyle(
-                                color: Colors.grey, fontSize: 14)),
-                        GestureDetector(
-                          onTap: () {},
-                          child: const Text(
-                            'Regístrate aquí',
-                            style: TextStyle(
-                              color: _teal,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                const SizedBox(height: 40),
+                _Field(
+                  controller: _emailController,
+                  label: 'Correo electrónico',
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                _Field(
+                  controller: _passwordController,
+                  label: 'Contraseña',
+                  icon: Icons.lock_outline,
+                  obscure: _obscurePassword,
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.grey,
+                    ),
+                    onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  ),
+                ),
+                const SizedBox(height: 32),
+                SizedBox(
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _submit,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _teal,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                          )
+                        : Text(
+                            _isLogin ? 'Iniciar Sesión' : 'Registrarse',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // Botón para alternar entre Login y Registro
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _isLogin = !_isLogin;
+                      _emailController.clear();
+                      _passwordController.clear();
+                    });
+                  },
+                  child: Text(
+                    _isLogin 
+                        ? '¿No tienes cuenta? Regístrate aquí' 
+                        : '¿Ya tienes cuenta? Inicia sesión',
+                    style: const TextStyle(color: _teal, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -269,8 +223,7 @@ class _Field extends StatelessWidget {
         ),
         filled: true,
         fillColor: Colors.grey.shade50,
-        contentPadding:
-            const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
       ),
     );
   }
