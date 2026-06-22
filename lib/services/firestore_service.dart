@@ -4,7 +4,6 @@ import '../models/product.dart';
 
 class FirestoreService {
   final _db = FirebaseFirestore.instance;
-
   String? get _uid => FirebaseAuth.instance.currentUser?.uid;
 
   CollectionReference? get _inventory {
@@ -17,7 +16,53 @@ class FirestoreService {
     return _db.collection('users').doc(_uid).collection('shopping_list');
   }
 
-  // ── Inventario ──────────────────────────────────────────────
+  // ── Cache GLOBAL de clasificación de productos ───────────────
+  // Todos los usuarios comparten esta colección, ahorrando llamadas a la IA
+  CollectionReference get _cache =>
+      _db.collection('product_knowledge');
+
+  String _normalizeKey(String name) => name
+      .toLowerCase()
+      .replaceAll(RegExp(r'[áàä]'), 'a')
+      .replaceAll(RegExp(r'[éèë]'), 'e')
+      .replaceAll(RegExp(r'[íìï]'), 'i')
+      .replaceAll(RegExp(r'[óòö]'), 'o')
+      .replaceAll(RegExp(r'[úùü]'), 'u')
+      .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
+      .trim();
+
+  /// Consulta si un producto ya fue clasificado antes.
+  /// Retorna null si no existe en caché.
+  Future<bool?> getCachedClassification(String productName) async {
+    try {
+      final key = _normalizeKey(productName);
+      if (key.isEmpty) return null;
+      final doc = await _cache.doc(key).get();
+      if (!doc.exists) return null;
+      final data = doc.data() as Map<String, dynamic>?;
+      return data?['isFood'] as bool?;
+    } catch (e) {
+      return null; // Si falla la caché, no bloquear
+    }
+  }
+
+  /// Guarda la clasificación de un producto en la caché global.
+  Future<void> saveCachedClassification(
+      String productName, bool isFood) async {
+    try {
+      final key = _normalizeKey(productName);
+      if (key.isEmpty) return;
+      await _cache.doc(key).set({
+        'isFood': isFood,
+        'name': productName,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (_) {
+      // Silencioso: la caché es opcional
+    }
+  }
+
+  // ── Inventario ───────────────────────────────────────────────
 
   Future<void> saveProducts(List<Product> products) async {
     final inv = _inventory;
@@ -46,22 +91,35 @@ class FirestoreService {
     return _inventory!.orderBy('name').snapshots();
   }
 
-  // ── Lista de Compras 
+  // ── Lista de Compras ─────────────────────────────────────────
 
   Future<void> addToShoppingList(Product product) async {
     final sl = _shoppingList;
     if (sl == null) return;
-    // Evita duplicados
     final existing =
         await sl.where('name', isEqualTo: product.name).limit(1).get();
     if (existing.docs.isEmpty) {
       await sl.add({
         'name': product.name,
-        'quantity': '${product.minStock.toInt()} ${product.unit}',
+        'neededQty':
+            '${product.minStock.toInt()} ${product.unit}',
         'checked': false,
+        'isAuto': true,
         'addedAt': FieldValue.serverTimestamp(),
       });
     }
+  }
+
+  Future<void> addManualItem(String name, String qty) async {
+    final sl = _shoppingList;
+    if (sl == null) return;
+    await sl.add({
+      'name': name,
+      'neededQty': qty,
+      'checked': false,
+      'isAuto': false,
+      'addedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Stream<QuerySnapshot> getShoppingListStream() {

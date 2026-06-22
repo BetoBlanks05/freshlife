@@ -11,14 +11,12 @@ import 'add_product_screen.dart';
 import 'alerts_screen.dart';
 import 'login_screen.dart';
 
-// Colores globales del módulo (no en clases individuales para evitar "unused")
 const _kTeal   = Color(0xFF4DB6AC);
 const _kOrange = Color(0xFFFF9800);
 const _kDark   = Color(0xFF263238);
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
-
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
@@ -35,46 +33,260 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  // ── Escaneo de ticket ──────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+  // ESCANEO DE TICKET — flujo completo con revisión
+  // ══════════════════════════════════════════════════════════════
   Future<void> _scanTicket() async {
     final picker = ImagePicker();
-    final image  = await picker.pickImage(source: ImageSource.camera);
-    if (image == null) return;
-    if (!mounted) return;
+    final image  = await picker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 90,   // mejor calidad → mejor OCR
+    );
+    if (image == null || !mounted) return;
 
-    _showLoadingDialog('Analizando ticket...');
+    _showLoading('Leyendo ticket...');
 
     final inputImage = InputImage.fromFilePath(image.path);
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
     try {
       final recognized = await recognizer.processImage(inputImage);
-      final rawProducts = TicketParser.parseText(recognized.text);
+      final rawText = recognized.text;
+
+      if (!mounted) return;
+      _hideLoading();
+
+      // ── Sin texto detectado ────────────────────────────────
+      if (rawText.trim().isEmpty) {
+        _showRawTextDialog('No se detectó texto.\n'
+            'Asegúrate de que el ticket esté bien iluminado y enfocado.');
+        return;
+      }
+
+      // ── Parsear productos ──────────────────────────────────
+      final rawProducts = TicketParser.parseText(rawText);
+
+      if (rawProducts.isEmpty) {
+        _showRawTextDialog(
+          'Se leyó el ticket pero no se encontraron productos.\n\n'
+          'TEXTO DETECTADO:\n$rawText',
+        );
+        return;
+      }
+
+      // ── Clasificar con IA + caché ──────────────────────────
+      _showLoading(
+          'Clasificando ${rawProducts.length} productos con IA...');
       final foodProducts =
           await _aiService.filtrarAlimentosEnLote(rawProducts);
-
-      // FIX: mounted check tras cada await
       if (!mounted) return;
-      Navigator.of(context).pop(); // cierra loading
+      _hideLoading();
 
-      if (foodProducts.isNotEmpty) {
-        await _firestoreService.saveProducts(foodProducts);
-        if (mounted) _snack('${foodProducts.length} alimentos guardados', _kTeal);
-      } else {
-        if (mounted) _snack('No se detectaron alimentos en el ticket', _kOrange);
-      }
+      // ── Mostrar diálogo de revisión ────────────────────────
+      await _showReviewDialog(rawProducts, foodProducts);
     } catch (e) {
       if (mounted) {
-        Navigator.of(context).pop();
-        _snack('Error al procesar: $e', Colors.red);
+        _hideLoading();
+        _snack('Error al procesar el ticket: $e', Colors.red);
+        debugPrint('Scan error: $e');
       }
-      debugPrint('Error escaneo: $e');
     } finally {
       recognizer.close();
     }
   }
 
-  void _showLoadingDialog(String msg) {
+  // ── Diálogo de revisión con checkboxes ──────────────────────
+  Future<void> _showReviewDialog(
+      List<Product> rawProducts, List<Product> foodProducts) async {
+    // Inicializa selección: marcados los que la IA dijo que son comida
+    final selected = {
+      for (var p in rawProducts) p: foodProducts.contains(p),
+    };
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModal) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.75,
+          maxChildSize: 0.95,
+          builder: (_, scroll) => Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Revisar Productos',
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold)),
+                          Text('Desmarca lo que no quieras guardar',
+                              style: TextStyle(
+                                  color: Colors.grey, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _kTeal.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${selected.values.where((v) => v).length} selec.',
+                        style: const TextStyle(
+                            color: _kTeal,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView(
+                  controller: scroll,
+                  children: rawProducts.map((p) {
+                    final isFood = foodProducts.contains(p);
+                    return CheckboxListTile(
+                      value: selected[p],
+                      onChanged: (v) =>
+                          setModal(() => selected[p] = v ?? false),
+                      activeColor: _kTeal,
+                      title: Text(p.name,
+                          style: const TextStyle(fontSize: 14)),
+                      subtitle: p.price > 0
+                          ? Text('\$${p.price.toStringAsFixed(2)}',
+                              style:
+                                  const TextStyle(color: Colors.grey))
+                          : null,
+                      secondary: Icon(
+                        isFood
+                            ? Icons.check_circle_outline
+                            : Icons.cancel_outlined,
+                        color: isFood ? _kTeal : Colors.grey,
+                        size: 20,
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                    16, 8, 16, MediaQuery.of(ctx).viewInsets.bottom + 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Cancelar'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          final toSave = selected.entries
+                              .where((e) => e.value)
+                              .map((e) => e.key)
+                              .toList();
+                          Navigator.pop(ctx);
+                          if (toSave.isNotEmpty) {
+                            await _firestoreService
+                                .saveProducts(toSave);
+                            if (mounted) {
+                              _snack(
+                                  '✅ ${toSave.length} productos guardados',
+                                  _kTeal);
+                            }
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _kTeal,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Guardar Selección',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Muestra texto crudo si el parser falla ───────────────────
+  void _showRawTextDialog(String content) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: _kOrange),
+            SizedBox(width: 8),
+            Text('Problema con el ticket'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Text(content,
+              style: const TextStyle(fontSize: 12)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Entendido'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const AddProductScreen()));
+            },
+            child: const Text('Agregar manualmente',
+                style: TextStyle(color: _kTeal)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLoading(String msg) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -89,8 +301,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const CircularProgressIndicator(color: _kTeal),
-                const SizedBox(height: 18),
-                Text(msg, style: const TextStyle(fontSize: 14)),
+                const SizedBox(height: 16),
+                Text(msg,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 13)),
               ],
             ),
           ),
@@ -99,13 +313,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  void _hideLoading() {
+    if (mounted) Navigator.of(context, rootNavigator: true).pop();
+  }
+
   void _snack(String msg, Color color) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
       backgroundColor: color,
       behavior: SnackBarBehavior.floating,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
     ));
   }
 
@@ -132,43 +351,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 style: TextStyle(
                     fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            ListTile(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              // FIX: withOpacity → withValues(alpha:)
-              tileColor: _kTeal.withValues(alpha: 0.07),
-              leading: const CircleAvatar(
-                backgroundColor: _kTeal,
-                child: Icon(Icons.camera_alt, color: Colors.white),
-              ),
-              title: const Text('Escanear Ticket de Compra',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: const Text(
-                  'Agrega productos escaneando el ticket de tu compra'),
-              onTap: () {
-                Navigator.pop(context);
-                _scanTicket();
-              },
+            _OptionTile(
+              color: _kTeal,
+              icon: Icons.camera_alt,
+              title: 'Escanear Ticket de Compra',
+              subtitle: 'La IA filtra solo los alimentos (con caché)',
+              onTap: () { Navigator.pop(context); _scanTicket(); },
             ),
             const SizedBox(height: 10),
-            ListTile(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              tileColor: const Color(0xFF66BB6A).withValues(alpha: 0.08),
-              leading: const CircleAvatar(
-                backgroundColor: Color(0xFF66BB6A),
-                child: Icon(Icons.edit_outlined, color: Colors.white),
-              ),
-              title: const Text('Agregar Manualmente',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: const Text('Ingresa un producto a mano'),
+            _OptionTile(
+              color: const Color(0xFF66BB6A),
+              icon: Icons.edit_outlined,
+              title: 'Agregar Manualmente',
+              subtitle: 'Ingresa un producto a mano',
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const AddProductScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(
+                        builder: (_) => const AddProductScreen()));
               },
             ),
           ],
@@ -221,19 +421,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           padding: EdgeInsets.all(10),
           child: Icon(Icons.eco_rounded, color: _kTeal, size: 30),
         ),
-        title: const Text(
-          'Mi Despensa',
-          style: TextStyle(
-              color: _kDark,
-              fontWeight: FontWeight.bold,
-              fontSize: 20),
-        ),
+        title: const Text('Mi Despensa',
+            style: TextStyle(
+                color: _kDark,
+                fontWeight: FontWeight.bold,
+                fontSize: 20)),
         actions: [
-          // Campanita con badge de alertas
           StreamBuilder<QuerySnapshot>(
             stream: _firestoreService.getInventoryStream(),
             builder: (context, snap) {
-              final alertCount = (snap.data?.docs ?? [])
+              final count = (snap.data?.docs ?? [])
                   .map((d) => Product.fromMap(
                       d.data() as Map<String, dynamic>, d.id))
                   .where((p) => p.isLowStock)
@@ -242,16 +439,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 alignment: Alignment.center,
                 children: [
                   IconButton(
-                    icon: const Icon(
-                        Icons.notifications_outlined,
+                    icon: const Icon(Icons.notifications_outlined,
                         color: _kDark),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const AlertsScreen()),
-                    ),
+                    onPressed: () => Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => const AlertsScreen())),
                   ),
-                  if (alertCount > 0)
+                  if (count > 0)
                     Positioned(
                       right: 8,
                       top: 8,
@@ -262,13 +456,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             color: _kOrange,
                             shape: BoxShape.circle),
                         child: Center(
-                          child: Text(
-                            '$alertCount',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold),
-                          ),
+                          child: Text('$count',
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ),
@@ -309,7 +501,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           return CustomScrollView(
             slivers: [
-              // Buscador
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -324,9 +515,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       prefixIcon: const Icon(Icons.search,
                           color: Colors.grey),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
-                      ),
+                          borderRadius: BorderRadius.circular(14),
+                          borderSide: BorderSide.none),
                       filled: true,
                       fillColor: Colors.white,
                       contentPadding:
@@ -336,18 +526,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
 
-              // Por Agotarse
               if (lowStock.isNotEmpty) ...[
                 const SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    child: Text(
-                      'Por Agotarse',
-                      style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: _kDark),
-                    ),
+                    child: Text('Por Agotarse',
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: _kDark)),
                   ),
                 ),
                 SliverToBoxAdapter(
@@ -365,7 +552,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ],
 
-              // Encabezado inventario
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -373,24 +559,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     mainAxisAlignment:
                         MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Todo el Inventario',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: _kDark),
-                      ),
-                      Text(
-                        '${filtered.length} productos',
-                        style: const TextStyle(
-                            color: Colors.grey, fontSize: 13),
-                      ),
+                      const Text('Todo el Inventario',
+                          style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: _kDark)),
+                      Text('${filtered.length} productos',
+                          style: const TextStyle(
+                              color: Colors.grey, fontSize: 13)),
                     ],
                   ),
                 ),
               ),
 
-              // Lista vacía
               if (filtered.isEmpty)
                 SliverFillRemaining(
                   child: Center(
@@ -401,13 +582,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             size: 72,
                             color: Colors.grey.shade300),
                         const SizedBox(height: 16),
-                        const Text(
-                          'Tu despensa está vacía',
-                          style: TextStyle(
-                              color: Colors.grey,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500),
-                        ),
+                        const Text('Tu despensa está vacía',
+                            style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500)),
                         const SizedBox(height: 6),
                         const Text(
                           'Escanea un ticket o agrega\nproductos manualmente',
@@ -434,7 +613,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
 
-              const SliverToBoxAdapter(child: SizedBox(height: 80)),
+              const SliverToBoxAdapter(
+                  child: SizedBox(height: 80)),
             ],
           );
         },
@@ -449,7 +629,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-// ── Tarjeta stock bajo ─────────────────────────────────────────
+class _OptionTile extends StatelessWidget {
+  final Color color;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  const _OptionTile(
+      {required this.color,
+      required this.icon,
+      required this.title,
+      required this.subtitle,
+      required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
+        tileColor: color.withValues(alpha: 0.07),
+        leading: CircleAvatar(
+            backgroundColor: color,
+            child: Icon(icon, color: Colors.white)),
+        title:
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: Text(subtitle,
+            style: const TextStyle(fontSize: 12)),
+        onTap: onTap,
+      );
+}
+
 class _LowStockCard extends StatelessWidget {
   final Product product;
   const _LowStockCard({required this.product});
@@ -458,7 +666,6 @@ class _LowStockCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ratio =
         (product.quantity / product.minStock).clamp(0.0, 1.0);
-
     return Container(
       width: 150,
       margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
@@ -468,10 +675,9 @@ class _LowStockCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 2)),
         ],
       ),
       child: Column(
@@ -484,13 +690,11 @@ class _LowStockCard extends StatelessWidget {
                   color: _kOrange, size: 16),
               const SizedBox(width: 4),
               Expanded(
-                child: Text(
-                  product.name,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 13),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text(product.name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ),
             ],
           ),
@@ -500,18 +704,15 @@ class _LowStockCard extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(6),
                 child: LinearProgressIndicator(
-                  value: ratio,
-                  backgroundColor: Colors.grey.shade200,
-                  color: _kOrange,
-                  minHeight: 7,
-                ),
+                    value: ratio,
+                    backgroundColor: Colors.grey.shade200,
+                    color: _kOrange,
+                    minHeight: 7),
               ),
               const SizedBox(height: 5),
-              Text(
-                'Queda ${(ratio * 100).toInt()}%',
-                style: const TextStyle(
-                    color: _kOrange, fontSize: 11),
-              ),
+              Text('Queda ${(ratio * 100).toInt()}%',
+                  style:
+                      const TextStyle(color: _kOrange, fontSize: 11)),
             ],
           ),
         ],
@@ -520,7 +721,6 @@ class _LowStockCard extends StatelessWidget {
   }
 }
 
-// ── Fila de inventario ─────────────────────────────────────────
 class _InventoryItem extends StatelessWidget {
   final Product product;
   final FirestoreService firestoreService;
@@ -530,11 +730,9 @@ class _InventoryItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-            builder: (_) => AddProductScreen(product: product)),
-      ),
+      onTap: () => Navigator.push(context,
+          MaterialPageRoute(
+              builder: (_) => AddProductScreen(product: product))),
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
@@ -542,15 +740,14 @@ class _InventoryItem extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2)),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 14, vertical: 12),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             children: [
               Container(
@@ -560,7 +757,7 @@ class _InventoryItem extends StatelessWidget {
                   color: _kTeal.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(_categoryIcon(product.category),
+                child: Icon(_catIcon(product.category),
                     color: _kTeal, size: 24),
               ),
               const SizedBox(width: 14),
@@ -568,45 +765,39 @@ class _InventoryItem extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      product.name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    Text(product.name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 2),
                     Text(
-                      '${product.quantity.toInt()} ${product.unit}',
-                      style: const TextStyle(
-                          color: Colors.grey, fontSize: 12),
-                    ),
+                        '${product.quantity.toInt()} ${product.unit}',
+                        style: const TextStyle(
+                            color: Colors.grey, fontSize: 12)),
                   ],
                 ),
               ),
               Row(
                 children: [
                   _QtyBtn(
-                    icon: Icons.remove,
-                    onTap: () {
-                      if (product.id != null &&
-                          product.quantity > 0) {
-                        firestoreService.updateQuantity(
-                            product.id!, product.quantity - 1);
-                      }
-                    },
-                  ),
+                      icon: Icons.remove,
+                      onTap: () {
+                        if (product.id != null && product.quantity > 0) {
+                          firestoreService.updateQuantity(
+                              product.id!, product.quantity - 1);
+                        }
+                      }),
                   const SizedBox(width: 6),
                   _QtyBtn(
-                    icon: Icons.add,
-                    onTap: () {
-                      if (product.id != null) {
-                        firestoreService.updateQuantity(
-                            product.id!, product.quantity + 1);
-                      }
-                    },
-                  ),
+                      icon: Icons.add,
+                      onTap: () {
+                        if (product.id != null) {
+                          firestoreService.updateQuantity(
+                              product.id!, product.quantity + 1);
+                        }
+                      }),
                 ],
               ),
             ],
@@ -616,15 +807,15 @@ class _InventoryItem extends StatelessWidget {
     );
   }
 
-  IconData _categoryIcon(String category) {
-    switch (category) {
-      case 'Lácteos':       return Icons.egg_outlined;
+  IconData _catIcon(String c) {
+    switch (c) {
+      case 'Lácteos':           return Icons.egg_outlined;
       case 'Frutas y Verduras': return Icons.eco_outlined;
-      case 'Carnes':        return Icons.set_meal_outlined;
-      case 'Bebidas':       return Icons.local_drink_outlined;
-      case 'Congelados':    return Icons.ac_unit_outlined;
-      case 'Panadería':     return Icons.bakery_dining_outlined;
-      default:              return Icons.shopping_basket_outlined;
+      case 'Carnes':            return Icons.set_meal_outlined;
+      case 'Bebidas':           return Icons.local_drink_outlined;
+      case 'Congelados':        return Icons.ac_unit_outlined;
+      case 'Panadería':         return Icons.bakery_dining_outlined;
+      default:                  return Icons.shopping_basket_outlined;
     }
   }
 }
@@ -635,19 +826,15 @@ class _QtyBtn extends StatelessWidget {
   const _QtyBtn({required this.icon, required this.onTap});
 
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: _kTeal,
-          borderRadius: BorderRadius.circular(8),
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+              color: _kTeal, borderRadius: BorderRadius.circular(8)),
+          child: Icon(icon, color: Colors.white, size: 18),
         ),
-        child: Icon(icon, color: Colors.white, size: 18),
-      ),
-    );
-  }
+      );
 }
