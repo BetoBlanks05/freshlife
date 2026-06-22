@@ -9,12 +9,12 @@ class AIService {
   final _db = FirestoreService();
 
   static const _modelCandidates = [
-    'gemini-1.5-flash',
-    'gemini-1.5-flash-8b',
-    'gemini-1.5-flash-latest',
+    'gemini-2.0-flash',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-latest',
   ];
 
-  // ── Palabras que SÍ son alimentos ────────────────────────────
+  // Palabras que SÍ son alimentos
   static const _foodWords = {
     'leche', 'arroz', 'aceite', 'azucar', 'sal', 'harina', 'frijol',
     'lenteja', 'garbanzo', 'pasta', 'espagueti', 'sopa', 'crema',
@@ -43,17 +43,15 @@ class AIService {
     'scott', 'sanit', 'toilet', 'bano', 'limpia',
   };
 
-  // ═══════════════════════════════════════════════════════════════
   // FILTRAR EN LOTE — con caché Firestore
-  // ═══════════════════════════════════════════════════════════════
   Future<List<Product>> filtrarAlimentosEnLote(
       List<Product> productos) async {
     if (productos.isEmpty) return [];
 
-    final confirmed = <Product>[];     // ya sabemos que son comida
+    final confirmed = <Product>[];     // ya son comida
     final toClassify = <Product>[];    // necesitan consultarse
 
-    // 1️⃣ Revisar caché primero
+    // Revisar caché primero
     for (final p in productos) {
       final cached = await _db.getCachedClassification(p.name);
       if (cached != null) {
@@ -72,7 +70,7 @@ class AIService {
     debugPrint('AIService: ${confirmed.length} desde caché, '
         '${toClassify.length} necesitan IA.');
 
-    // 2️⃣ Llamar a la IA para los no cacheados
+    // Llamar a la IA para los no cacheados
     List<Product> aiResult = [];
     bool aiWorked = false;
 
@@ -97,7 +95,7 @@ class AIService {
       aiResult = toClassify.where((p) => _isFood(p.name)).toList();
     }
 
-    // 3️⃣ Guardar resultados en caché para futuras consultas
+    // Guardar resultados en caché para futuras consultas
     for (final p in toClassify) {
       final isFood = aiResult.any((r) => r.name == p.name);
       await _db.saveCachedClassification(p.name, isFood);
@@ -107,7 +105,7 @@ class AIService {
     return confirmed;
   }
 
-  // ── Llamada a un modelo específico ──────────────────────────
+  //  Llamada de Gemini para clasificar en lote
   Future<List<Product>?> _callGemini(
       String modelName, List<Product> productos) async {
     final model = GenerativeModel(model: modelName, apiKey: _apiKey);
@@ -140,9 +138,8 @@ Ejemplo: [true, false, true, true]
     ];
   }
 
-  // ═══════════════════════════════════════════════════════════════
   // RECETAS con los ingredientes disponibles
-  // ═══════════════════════════════════════════════════════════════
+
   Future<List<Map<String, dynamic>>> generarRecetas(
       List<String> ingredientes) async {
     if (ingredientes.isEmpty) return [];
@@ -173,21 +170,33 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta (sin markdow
         final response =
             await model.generateContent([Content.text(prompt)]);
         String text = response.text?.trim() ?? '[]';
-        text = text
-            .replaceAll(RegExp(r'```(?:json)?\s*|\s*```'), '')
-            .trim();
+        text = text.replaceAll('```json', '').replaceAll('```', '').trim();
 
         final List<dynamic> json = jsonDecode(text);
         return json.cast<Map<String, dynamic>>();
       } catch (e) {
-        debugPrint('AIService.generarRecetas: $modelName falló → $e');
+        debugPrint('AIService: Fallo crítico de API. Activando Fallback local de recetas.');
         continue;
       }
     }
-    return [];
+    return [
+      {
+        "nombre": "Guiso Casero (Sugerencia de contingencia)",
+        "tiempo": "25 min",
+        "porciones": "2",
+        "ingredientesUsados": ingredientes.take(3).toList(),
+        "ingredientesExtra": ["sal", "pimienta", "aceite"],
+        "pasos": [
+          "Prepara los ingredientes disponibles: ${ingredientes.take(3).join(', ')}.",
+          "Calienta una sartén con un poco de aceite a fuego medio.",
+          "Cocina los ingredientes principales hasta que estén dorados.",
+          "Sazona al gusto con sal y pimienta. Sirve caliente."
+        ]
+      }
+    ];
   }
 
-  // ── Fallback local por palabras clave ───────────────────────
+  // Fallback local por palabras clave
   bool _isFood(String name) {
     final lower = _norm(name);
     for (final kw in _nonFoodWords) {

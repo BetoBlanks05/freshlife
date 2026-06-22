@@ -28,7 +28,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
     setState(() { _loading = true; _error = ''; });
 
     try {
-      // Obtiene inventario actual
       final snap = await _firestoreService
           .getInventoryStream()
           .first;
@@ -107,20 +106,17 @@ class _RecipesScreenState extends State<RecipesScreen> {
                 ],
               ),
             )
-          : SingleChildScrollView( // --- AQUÍ ESTÁ EL CAMBIO ---
-              child: !_generated
-                  ? _buildWelcome()
-                  : _error.isNotEmpty
-                      ? _buildError()
-                      : _buildRecipeList(),
-            ),
+          : !_generated
+              ? _buildWelcome()
+              : _error.isNotEmpty
+                  ? _buildError()
+                  : _buildRecipeList(),
     );
   }
 
-  // ── Pantalla inicial ──────────────────────────────────────────
   Widget _buildWelcome() {
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -152,7 +148,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
-            // Vista previa de ingredientes disponibles
             StreamBuilder<QuerySnapshot>(
               stream: _firestoreService.getInventoryStream(),
               builder: (context, snap) {
@@ -251,7 +246,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
     );
   }
 
-  // ── Lista de recetas ──────────────────────────────────────────
   Widget _buildRecipeList() {
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -309,7 +303,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
   }
 }
 
-// ── Tarjeta de receta expandible ─────────────────────────────
 class _RecipeCard extends StatefulWidget {
   final Map<String, dynamic> recipe;
   const _RecipeCard({required this.recipe});
@@ -345,7 +338,6 @@ class _RecipeCardState extends State<_RecipeCard> {
       ),
       child: Column(
         children: [
-          // Cabecera
           InkWell(
             borderRadius: BorderRadius.circular(20),
             onTap: () => setState(() => _expanded = !_expanded),
@@ -412,7 +404,6 @@ class _RecipeCardState extends State<_RecipeCard> {
             ),
           ),
 
-          // Detalle expandido
           if (_expanded) ...[
             const Divider(height: 1),
             Padding(
@@ -420,7 +411,6 @@ class _RecipeCardState extends State<_RecipeCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Ingredientes que tienes
                   if (usados.isNotEmpty) ...[
                     const Text('Ingredientes en tu despensa',
                         style: TextStyle(
@@ -444,7 +434,6 @@ class _RecipeCardState extends State<_RecipeCard> {
                     const SizedBox(height: 12),
                   ],
 
-                  // Ingredientes extra que necesitas
                   if (extra.isNotEmpty) ...[
                     const Text('🛒 También necesitas',
                         style: TextStyle(
@@ -468,7 +457,6 @@ class _RecipeCardState extends State<_RecipeCard> {
                     const SizedBox(height: 12),
                   ],
 
-                  // Pasos
                   if (pasos.isNotEmpty) ...[
                     const Text('Preparación',
                         style: TextStyle(
