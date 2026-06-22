@@ -33,14 +33,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  // ══════════════════════════════════════════════════════════════
-  // ESCANEO DE TICKET — flujo completo con revisión
-  // ══════════════════════════════════════════════════════════════
+  // ESCANEO DE TICKET
   Future<void> _scanTicket() async {
     final picker = ImagePicker();
     final image  = await picker.pickImage(
       source: ImageSource.camera,
-      imageQuality: 90,   // mejor calidad → mejor OCR
+      imageQuality: 90,
     );
     if (image == null || !mounted) return;
 
@@ -56,14 +54,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (!mounted) return;
       _hideLoading();
 
-      // ── Sin texto detectado ────────────────────────────────
+      // Sin texto detectado 
       if (rawText.trim().isEmpty) {
         _showRawTextDialog('No se detectó texto.\n'
             'Asegúrate de que el ticket esté bien iluminado y enfocado.');
         return;
       }
 
-      // ── Parsear productos ──────────────────────────────────
+      //  Parsear productos
       final rawProducts = TicketParser.parseText(rawText);
 
       if (rawProducts.isEmpty) {
@@ -74,15 +72,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         return;
       }
 
-      // ── Clasificar con IA + caché ──────────────────────────
+      // Clasificar con IA + caché
       _showLoading(
-          'Clasificando ${rawProducts.length} productos con IA...');
+          'Clasificando ${rawProducts.length} productos...');
       final foodProducts =
           await _aiService.filtrarAlimentosEnLote(rawProducts);
       if (!mounted) return;
       _hideLoading();
 
-      // ── Mostrar diálogo de revisión ────────────────────────
+      // Mostrar diálogo de revisión 
       await _showReviewDialog(rawProducts, foodProducts);
     } catch (e) {
       if (mounted) {
@@ -95,7 +93,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // ── Diálogo de revisión con checkboxes ──────────────────────
+  //  Diálogo de revisión con checkboxes 
   Future<void> _showReviewDialog(
       List<Product> rawProducts, List<Product> foodProducts) async {
     // Inicializa selección: marcados los que la IA dijo que son comida
@@ -221,7 +219,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 .saveProducts(toSave);
                             if (mounted) {
                               _snack(
-                                  '✅ ${toSave.length} productos guardados',
+                                  '${toSave.length} productos guardados',
                                   _kTeal);
                             }
                           }
@@ -249,7 +247,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ── Muestra texto crudo si el parser falla ───────────────────
+  //  Muestra texto crudo si el parser falla
   void _showRawTextDialog(String content) {
     showDialog(
       context: context,
@@ -355,7 +353,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: _kTeal,
               icon: Icons.camera_alt,
               title: 'Escanear Ticket de Compra',
-              subtitle: 'La IA filtra solo los alimentos (con caché)',
+              subtitle: 'La app intentará detectar los productos automáticamente',
               onTap: () { Navigator.pop(context); _scanTicket(); },
             ),
             const SizedBox(height: 10),

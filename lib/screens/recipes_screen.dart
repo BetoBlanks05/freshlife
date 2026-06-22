@@ -144,7 +144,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'La IA analizará los ingredientes que tienes\n'
+              'Se analizarán los ingredientes que tienes\n'
               'y sugerirá 3 recetas.',
               style: TextStyle(color: Colors.grey, fontSize: 14),
               textAlign: TextAlign.center,
@@ -420,7 +420,7 @@ class _RecipeCardState extends State<_RecipeCard> {
                 children: [
                   // Ingredientes que tienes
                   if (usados.isNotEmpty) ...[
-                    const Text('✅ Ingredientes en tu despensa',
+                    const Text('Ingredientes en tu despensa',
                         style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: _kTeal,

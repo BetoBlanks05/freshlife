@@ -5,7 +5,7 @@ import '../models/product.dart';
 import 'firestore_service.dart';
 
 class AIService {
-  static const _apiKey = 'API Key de Gemini aquí';
+  static const _apiKey = 'api key aqui';
   final _db = FirestoreService();
 
   static const _modelCandidates = [
